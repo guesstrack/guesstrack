@@ -3,19 +3,59 @@ import SpotifyProvider from "next-auth/providers/spotify";
 
 const scopes = [
   "user-read-email",
+  "user-read-private",
   "playlist-read-private",
   "playlist-read-collaborative",
-  "streaming",
 ].join(" ");
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
     SpotifyProvider({
-      clientId: process.env.SPOTIFY_CLIENT_ID!,
-      clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
-      authorization: { params: { scope: scopes } },
+      clientId: requireEnv("SPOTIFY_CLIENT_ID"),
+      clientSecret: requireEnv("SPOTIFY_CLIENT_SECRET"),
+      authorization: {
+        params: {
+          scope: scopes,
+        },
+      },
+      profile(profile) {
+        return {
+          id: profile.id,
+          name: profile.display_name,
+          email: profile.email,
+          image: profile.images?.[0]?.url,
+        };
+      },
+      userinfo: {
+        url: "https://api.spotify.com/v1/me",
+        async request({ tokens }) {
+          const res = await fetch("https://api.spotify.com/v1/me", {
+            headers: { Authorization: `Bearer ${tokens.access_token}` },
+          });
+
+          if (!res.ok) {
+            const body = await res.text();
+            throw new Error(
+              `Spotify profile request failed (${res.status}): ${body}`,
+            );
+          }
+
+          return res.json();
+        },
+      },
     }),
   ],
+  session: {
+    strategy: "jwt",
+  },
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
@@ -28,5 +68,6 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: requireEnv("NEXTAUTH_SECRET"),
+  debug: process.env.NODE_ENV === "development",
 };
